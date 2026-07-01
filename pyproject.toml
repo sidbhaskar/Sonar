@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonar"
+version = "0.1.0"
+description = "Terminal-native distributed trace visualizer — a local OpenTelemetry collector with a TUI."
+readme = "project_desc.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Sonar Contributors"},
+]
+keywords = ["opentelemetry", "tracing", "tui", "terminal", "distributed-tracing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "textual>=0.40",
+    "rich>=13.0",
+    "httpx>=0.24",
+    "grpcio>=1.50",
+    "opentelemetry-proto>=1.20",
+    "protobuf>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.24",
+]
+
+[project.scripts]
+sonar = "sonar.main:main"
+
+[tool.setuptools.packages.find]
+include = ["sonar*"]
+
+[tool.pytest.ini_options]
+testpaths = ["sonar/tests"]
+pythonpath = ["."]
