@@ -43,12 +43,10 @@ Sonar bridges the gap by running directly in your terminal. It instantly process
 Since Sonar is packaged with standard Python tools, you can install it globally or in a virtual environment directly via pip:
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/sonar.git
-cd sonar
+pip install sonar-tui
 
-# Install the package and its dependencies
-pip install .
+# Or install in an isolated environment with pipx:
+pipx install sonar-tui
 ```
 
 ### 2. Start Sonar
