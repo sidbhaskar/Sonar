@@ -1,14 +1,11 @@
-"""Send a realistic fake checkout trace to the Sonar OTLP ingestion endpoint.
+"""Send multiple realistic fake traces to the Sonar OTLP ingestion endpoint.
 
-This script constructs a 5-span trace matching the real OTLP/HTTP JSON
-shape and POSTs it to http://localhost:4318/v1/traces.
-
-Trace shape:
-  api-gateway  POST /checkout                          812ms  OK
-  ├── inventory-service  CheckStock           [grpc]    94ms  OK
-  ├── billing-service    ChargeCard           [grpc]   690ms  ERROR
-  │   └── ledger-db      QueryBalance         [http]    12ms  OK
-  └── order-events       PublishOrderCreated  [kafka]    3ms  OK
+Traces sent:
+  1. Checkout flow   (5 spans, 1 ERROR — payment declined)
+  2. Login flow      (4 spans, all OK)
+  3. Search flow     (3 spans, all OK)
+  4. Order pipeline  (6 spans, 1 ERROR — timeout)
+  5. Notification    (3 spans, all OK)
 
 Usage:
     python scripts/send_fake_span.py
@@ -20,281 +17,169 @@ import uuid
 
 
 def _nano(ms_offset: int, base: int) -> str:
-    """Return a nanosecond timestamp string offset by `ms_offset` ms."""
     return str(base + ms_offset * 1_000_000)
 
 
-def build_checkout_trace() -> dict:
-    """Build a 5-span OTLP JSON payload for a checkout trace."""
-
-    trace_id = uuid.uuid4().hex
-    base_ns = time.time_ns()
-
-    # Span IDs (8-byte hex)
-    gateway_id = uuid.uuid4().hex[:16]
-    inventory_id = uuid.uuid4().hex[:16]
-    billing_id = uuid.uuid4().hex[:16]
-    ledger_id = uuid.uuid4().hex[:16]
-    kafka_id = uuid.uuid4().hex[:16]
-
+def _span(trace_id, span_id, parent_id, name, kind, start_ms, end_ms,
+          status_code=1, status_msg="", attributes=None, svc="unknown"):
+    attrs = []
+    for k, v in (attributes or {}).items():
+        if isinstance(v, int):
+            attrs.append({"key": k, "value": {"intValue": str(v)}})
+        else:
+            attrs.append({"key": k, "value": {"stringValue": str(v)}})
     return {
-        "resourceSpans": [
-            # ── api-gateway service ──────────────────────────
-            {
-                "resource": {
-                    "attributes": [
-                        {
-                            "key": "service.name",
-                            "value": {"stringValue": "api-gateway"},
-                        }
-                    ]
-                },
-                "scopeSpans": [
-                    {
-                        "scope": {
-                            "name": "opentelemetry-java",
-                            "version": "1.32.0",
-                        },
-                        "spans": [
-                            {
-                                "traceId": trace_id,
-                                "spanId": gateway_id,
-                                "parentSpanId": "",
-                                "name": "POST /checkout",
-                                "kind": 2,  # SERVER
-                                "startTimeUnixNano": _nano(0, base_ns),
-                                "endTimeUnixNano": _nano(812, base_ns),
-                                "status": {"code": 1},  # OK
-                                "attributes": [
-                                    {
-                                        "key": "http.method",
-                                        "value": {"stringValue": "POST"},
-                                    },
-                                    {
-                                        "key": "http.route",
-                                        "value": {
-                                            "stringValue": "/checkout"
-                                        },
-                                    },
-                                    {
-                                        "key": "http.status_code",
-                                        "value": {"intValue": "500"},
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-            # ── inventory-service ────────────────────────────
-            {
-                "resource": {
-                    "attributes": [
-                        {
-                            "key": "service.name",
-                            "value": {"stringValue": "inventory-service"},
-                        }
-                    ]
-                },
-                "scopeSpans": [
-                    {
-                        "scope": {
-                            "name": "opentelemetry-java",
-                            "version": "1.32.0",
-                        },
-                        "spans": [
-                            {
-                                "traceId": trace_id,
-                                "spanId": inventory_id,
-                                "parentSpanId": gateway_id,
-                                "name": "CheckStock",
-                                "kind": 3,  # CLIENT
-                                "startTimeUnixNano": _nano(5, base_ns),
-                                "endTimeUnixNano": _nano(99, base_ns),
-                                "status": {"code": 1},
-                                "attributes": [
-                                    {
-                                        "key": "rpc.system",
-                                        "value": {"stringValue": "grpc"},
-                                    },
-                                    {
-                                        "key": "rpc.service",
-                                        "value": {
-                                            "stringValue": "InventoryService"
-                                        },
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-            # ── billing-service (ERROR) ──────────────────────
-            {
-                "resource": {
-                    "attributes": [
-                        {
-                            "key": "service.name",
-                            "value": {"stringValue": "billing-service"},
-                        }
-                    ]
-                },
-                "scopeSpans": [
-                    {
-                        "scope": {
-                            "name": "opentelemetry-java",
-                            "version": "1.32.0",
-                        },
-                        "spans": [
-                            {
-                                "traceId": trace_id,
-                                "spanId": billing_id,
-                                "parentSpanId": gateway_id,
-                                "name": "ChargeCard",
-                                "kind": 3,
-                                "startTimeUnixNano": _nano(100, base_ns),
-                                "endTimeUnixNano": _nano(790, base_ns),
-                                "status": {
-                                    "code": 2,  # ERROR
-                                    "message": "Payment declined: insufficient funds",
-                                },
-                                "attributes": [
-                                    {
-                                        "key": "rpc.system",
-                                        "value": {"stringValue": "grpc"},
-                                    },
-                                    {
-                                        "key": "rpc.grpc.status_code",
-                                        "value": {"intValue": "13"},
-                                    },
-                                    {
-                                        "key": "error.message",
-                                        "value": {
-                                            "stringValue": "Payment declined: insufficient funds"
-                                        },
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-            # ── ledger-db (child of billing) ─────────────────
-            {
-                "resource": {
-                    "attributes": [
-                        {
-                            "key": "service.name",
-                            "value": {"stringValue": "ledger-db"},
-                        }
-                    ]
-                },
-                "scopeSpans": [
-                    {
-                        "scope": {
-                            "name": "opentelemetry-java",
-                            "version": "1.32.0",
-                        },
-                        "spans": [
-                            {
-                                "traceId": trace_id,
-                                "spanId": ledger_id,
-                                "parentSpanId": billing_id,
-                                "name": "QueryBalance",
-                                "kind": 3,
-                                "startTimeUnixNano": _nano(105, base_ns),
-                                "endTimeUnixNano": _nano(117, base_ns),
-                                "status": {"code": 1},
-                                "attributes": [
-                                    {
-                                        "key": "db.system",
-                                        "value": {"stringValue": "postgresql"},
-                                    },
-                                    {
-                                        "key": "db.statement",
-                                        "value": {
-                                            "stringValue": "SELECT balance FROM accounts WHERE user_id = $1"
-                                        },
-                                    },
-                                    {
-                                        "key": "db.name",
-                                        "value": {
-                                            "stringValue": "ledger"
-                                        },
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-            # ── order-events (kafka) ─────────────────────────
-            {
-                "resource": {
-                    "attributes": [
-                        {
-                            "key": "service.name",
-                            "value": {"stringValue": "order-events"},
-                        }
-                    ]
-                },
-                "scopeSpans": [
-                    {
-                        "scope": {
-                            "name": "opentelemetry-java",
-                            "version": "1.32.0",
-                        },
-                        "spans": [
-                            {
-                                "traceId": trace_id,
-                                "spanId": kafka_id,
-                                "parentSpanId": gateway_id,
-                                "name": "PublishOrderCreated",
-                                "kind": 4,  # PRODUCER
-                                "startTimeUnixNano": _nano(795, base_ns),
-                                "endTimeUnixNano": _nano(798, base_ns),
-                                "status": {"code": 1},
-                                "attributes": [
-                                    {
-                                        "key": "messaging.system",
-                                        "value": {"stringValue": "kafka"},
-                                    },
-                                    {
-                                        "key": "messaging.destination.name",
-                                        "value": {
-                                            "stringValue": "order.created"
-                                        },
-                                    },
-                                    {
-                                        "key": "messaging.kafka.partition",
-                                        "value": {"intValue": "3"},
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-        ]
+        "resource": {"attributes": [
+            {"key": "service.name", "value": {"stringValue": svc}},
+        ]},
+        "scopeSpans": [{
+            "scope": {"name": "opentelemetry-python", "version": "1.0.0"},
+            "spans": [{
+                "traceId": trace_id,
+                "spanId": span_id,
+                "parentSpanId": parent_id,
+                "name": name,
+                "kind": kind,
+                "startTimeUnixNano": _nano(start_ms, base),
+                "endTimeUnixNano": _nano(end_ms, base),
+                "status": {"code": status_code, "message": status_msg} if status_msg else {"code": status_code},
+                "attributes": attrs,
+            }],
+        }],
     }
 
 
+base = time.time_ns()
+
+
+# ── Trace 1: Checkout (ERROR) ────────────────────────────
+def build_checkout_trace():
+    tid = uuid.uuid4().hex
+    gw = uuid.uuid4().hex[:16]
+    inv = uuid.uuid4().hex[:16]
+    bill = uuid.uuid4().hex[:16]
+    led = uuid.uuid4().hex[:16]
+    mq = uuid.uuid4().hex[:16]
+    return [
+        _span(tid, gw, "", "POST /checkout", 2, 0, 812, 1, svc="api-gateway",
+              attributes={"http.method": "POST", "http.route": "/checkout", "http.status_code": 500}),
+        _span(tid, inv, gw, "CheckStock", 3, 5, 99, 1, svc="inventory-service",
+              attributes={"rpc.system": "grpc", "rpc.service": "InventoryService"}),
+        _span(tid, bill, gw, "ChargeCard", 3, 100, 790, 2,
+              "Payment declined: insufficient funds", svc="billing-service",
+              attributes={"rpc.system": "grpc", "rpc.grpc.status_code": 13,
+                          "error.message": "Payment declined: insufficient funds"}),
+        _span(tid, led, bill, "QueryBalance", 3, 105, 117, 1, svc="ledger-db",
+              attributes={"db.system": "postgresql", "db.statement": "SELECT balance FROM accounts WHERE user_id = $1",
+                          "db.name": "ledger"}),
+        _span(tid, mq, gw, "PublishOrderCreated", 4, 795, 798, 1, svc="order-events",
+              attributes={"messaging.system": "kafka", "messaging.destination.name": "order.created",
+                          "messaging.kafka.partition": 3}),
+    ]
+
+
+# ── Trace 2: Login (OK) ─────────────────────────────────
+def build_login_trace():
+    tid = uuid.uuid4().hex
+    gw = uuid.uuid4().hex[:16]
+    auth = uuid.uuid4().hex[:16]
+    sess = uuid.uuid4().hex[:16]
+    token = uuid.uuid4().hex[:16]
+    return [
+        _span(tid, gw, "", "POST /api/login", 2, 0, 245, 1, svc="api-gateway",
+              attributes={"http.method": "POST", "http.route": "/api/login", "http.status_code": 200}),
+        _span(tid, auth, gw, "AuthenticateUser", 3, 10, 180, 1, svc="auth-service",
+              attributes={"rpc.system": "grpc", "rpc.service": "AuthService"}),
+        _span(tid, sess, auth, "CreateSession", 3, 185, 210, 1, svc="session-store",
+              attributes={"db.system": "redis", "db.statement": "SET session:* TTL 3600"}),
+        _span(tid, token, auth, "GenerateJWT", 3, 215, 240, 1, svc="auth-service",
+              attributes={"auth.method": "jwt", "auth.token.ttl": 3600}),
+    ]
+
+
+# ── Trace 3: Search (OK) ─────────────────────────────────
+def build_search_trace():
+    tid = uuid.uuid4().hex
+    gw = uuid.uuid4().hex[:16]
+    search = uuid.uuid4().hex[:16]
+    cache = uuid.uuid4().hex[:16]
+    return [
+        _span(tid, gw, "", "GET /api/search", 2, 0, 156, 1, svc="api-gateway",
+              attributes={"http.method": "GET", "http.route": "/api/search", "http.status_code": 200}),
+        _span(tid, search, gw, "QueryElasticsearch", 3, 8, 120, 1, svc="search-service",
+              attributes={"db.system": "elasticsearch", "db.statement": '{"query":{"match":{"title":"laptop"}}}',
+                          "db.name": "products"}),
+        _span(tid, cache, search, "CheckCache", 3, 125, 145, 1, svc="cache-layer",
+              attributes={"db.system": "redis", "db.statement": "GET search:query:*"}),
+    ]
+
+
+# ── Trace 4: Order pipeline (deep chain, 1 ERROR) ────────
+def build_order_pipeline_trace():
+    tid = uuid.uuid4().hex
+    api = uuid.uuid4().hex[:16]
+    validate = uuid.uuid4().hex[:16]
+    inventory = uuid.uuid4().hex[:16]
+    reserve = uuid.uuid4().hex[:16]
+    payment = uuid.uuid4().hex[:16]
+    notify = uuid.uuid4().hex[:16]
+    return [
+        _span(tid, api, "", "POST /api/orders", 2, 0, 1200, 1, svc="api-gateway",
+              attributes={"http.method": "POST", "http.route": "/api/orders", "http.status_code": 504}),
+        _span(tid, validate, api, "ValidateOrder", 3, 5, 45, 1, svc="order-service",
+              attributes={"rpc.system": "grpc", "rpc.service": "OrderService"}),
+        _span(tid, inventory, validate, "ReserveStock", 3, 50, 320, 1, svc="inventory-service",
+              attributes={"rpc.system": "grpc", "rpc.service": "InventoryService"}),
+        _span(tid, reserve, inventory, "LockItem", 3, 55, 80, 1, svc="inventory-service",
+              attributes={"db.system": "postgresql", "db.statement": "UPDATE stock SET reserved = true WHERE sku = $1"}),
+        _span(tid, payment, validate, "ProcessPayment", 3, 330, 1150, 2,
+              "Connection to payment gateway timed out after 800ms", svc="payment-service",
+              attributes={"rpc.system": "grpc", "rpc.grpc.status_code": 14,
+                          "error.type": "DEADLINE_EXCEEDED",
+                          "error.message": "Connection to payment gateway timed out after 800ms"}),
+        _span(tid, notify, validate, "SendOrderConfirmation", 4, 1160, 1190, 1, svc="notification-service",
+              attributes={"messaging.system": "kafka", "messaging.destination.name": "notifications"}),
+    ]
+
+
+# ── Trace 5: Notification (OK) ──────────────────────────
+def build_notification_trace():
+    tid = uuid.uuid4().hex
+    gw = uuid.uuid4().hex[:16]
+    email = uuid.uuid4().hex[:16]
+    sms = uuid.uuid4().hex[:16]
+    return [
+        _span(tid, gw, "", "POST /api/notify", 2, 0, 310, 1, svc="api-gateway",
+              attributes={"http.method": "POST", "http.route": "/api/notify", "http.status_code": 200}),
+        _span(tid, email, gw, "SendEmail", 3, 10, 200, 1, svc="email-service",
+              attributes={"messaging.system": "kafka", "messaging.destination.name": "email.send",
+                          "email.to": "user@example.com", "email.subject": "Your order is ready"}),
+        _span(tid, sms, gw, "SendSMS", 3, 15, 280, 1, svc="sms-service",
+              attributes={"messaging.system": "kafka", "messaging.destination.name": "sms.send",
+                          "sms.to": "+1234567890"}),
+    ]
+
+
+ALL_TRACES = [
+    ("checkout", build_checkout_trace),
+    ("login", build_login_trace),
+    ("search", build_search_trace),
+    ("order-pipeline", build_order_pipeline_trace),
+    ("notification", build_notification_trace),
+]
+
+
 def main():
-    """Build and send the fake trace, then print the result."""
-    payload = build_checkout_trace()
+    print(f"Sending {len(ALL_TRACES)} fake traces to http://localhost:4318/v1/traces ...\n")
 
-    print("Sending fake checkout trace to http://localhost:4318/v1/traces ...")
+    for name, builder in ALL_TRACES:
+        spans = builder()
+        payload = {"resourceSpans": spans}
+        resp = httpx.post("http://localhost:4318/v1/traces", json=payload, timeout=5.0)
+        span_count = sum(len(s["scopeSpans"][0]["spans"]) for s in payload["resourceSpans"])
+        status = "OK" if resp.status_code == 200 else f"FAIL({resp.status_code})"
+        print(f"  [{status}] {name:20s} — {span_count} spans")
 
-    response = httpx.post(
-        "http://localhost:4318/v1/traces",
-        json=payload,
-        timeout=5.0,
-    )
-
-    print(f"Status: {response.status_code}")
-    print(f"Response: {response.json()}")
-
-    # Also fetch the summary to verify it landed.
     print("\nFetching trace summary from GET /traces ...")
     summary = httpx.get("http://localhost:4318/traces", timeout=5.0)
     print(f"Traces stored: {summary.json()}")

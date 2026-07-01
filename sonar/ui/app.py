@@ -154,6 +154,14 @@ class SonarApp(App):
 
     TITLE = "Sonar"
 
+    CSS_VARIABLES = {
+        "accent": "#1f2a1f",
+        "accent-darken-1": "#1a2319",
+        "accent-darken-2": "#151c14",
+        "accent-lighten-1": "#2a3a28",
+        "accent-lighten-2": "#354a33",
+    }
+
     CSS = """
     /* ── Global ────────────────────────────────────────── */
     Screen {
@@ -211,12 +219,16 @@ class SonarApp(App):
         padding: 0 1;
     }
 
-    /* ── Trace List (Left Rail, ~28 cols) ──────────────── */
+    /* ── Trace List (Left Rail) ────────────────────────── */
     #trace-list-panel {
         width: 32;
         min-width: 24;
         background: #0a0d0a;
-        border-right: solid #1f2a1f;
+        border: solid #1f2a1f;
+    }
+
+    #trace-list-panel:focus-within {
+        border: solid #6fffb0;
     }
 
     #trace-list {
@@ -226,6 +238,15 @@ class SonarApp(App):
         scrollbar-color-hover: #5f7a5a;
         margin-top: 1;
         height: 1fr;
+    }
+
+    #trace-list,
+    #trace-list:focus {
+        background: #0a0d0a;
+    }
+
+    ListView:focus {
+        background: transparent;
     }
 
     #trace-list-empty {
@@ -240,13 +261,22 @@ class SonarApp(App):
         height: auto;
         padding: 0 1;
         margin-bottom: 1;
-        background: #0a0d0a;
-        border-left: wide transparent;
+        background: transparent;
+        border: round transparent;
     }
 
     TraceListItem.--highlight {
-        background: #111611;
-        border-left: wide #6fffb0;
+        border: round #6fffb0;
+        background: #101410;
+    }
+
+    TraceListItem:focus {
+        border: round #6fffb0;
+        background: #101410;
+    }
+
+    TraceListItem:focus > .trace-item-line {
+        background: transparent;
     }
 
     .trace-item-line {
@@ -254,11 +284,16 @@ class SonarApp(App):
         background: transparent;
     }
 
-    /* ── Span Tree (Center, flexible width) ────────────── */
+    /* ── Span Tree (Center) ────────────────────────────── */
     #span-tree-panel {
         background: #0b0e0c;
         width: 1fr;
         min-width: 40;
+        border: solid #1f2a1f;
+    }
+
+    #span-tree-panel:focus-within {
+        border: solid #6fffb0;
     }
 
     #span-tree-content {
@@ -273,20 +308,35 @@ class SonarApp(App):
         scrollbar-color-hover: #5f7a5a;
     }
 
+    #span-tree,
+    #span-tree:focus {
+        background: #0b0e0c;
+    }
+
+    Tree:focus {
+        background: transparent;
+    }
+
     Tree > .tree--guides {
         color: #1f2a1f;
     }
 
     Tree > .tree--cursor {
-        background: #1a2018;
-        text-style: bold;
+        background: transparent;
+        color: #c9d6c4;
+        text-style: none;
+    }
+
+    Tree > .tree--cursor--active {
+        background: #141a13;
+        color: #ffffff;
     }
 
     Tree > .tree--highlight {
-        background: #151a14;
+        background: transparent;
     }
 
-    /* ── Inspector (Right Rail, ~40 cols) ──────────────── */
+    /* ── Inspector (Right Rail) ────────────────────────── */
     #inspector-panel {
         width: 44;
         min-width: 36;
@@ -374,6 +424,8 @@ class SonarApp(App):
         Binding("e", "toggle_errors", "Errors Only", priority=True, show=False),
         Binding("i", "toggle_inspector", "Toggle Inspector", priority=True, show=False),
         Binding("escape", "unfocus_search", "Back", priority=True, show=False),
+        Binding("left", "focus_traces", "Traces", priority=True, show=False),
+        Binding("right", "focus_span_tree", "Span Tree", priority=True, show=False),
     ]
 
     def __init__(self, trace_store: TraceStore | None = None) -> None:
@@ -384,6 +436,7 @@ class SonarApp(App):
         self._errors_only: bool = False
         self._pulse_on: bool = True
         self._inspector_visible: bool = True
+        self._selected_trace_index: int | None = None
 
     # ── Compose ──────────────────────────────────────────
 
@@ -498,6 +551,7 @@ class SonarApp(App):
         content = Text()
 
         bindings = [
+            ("\u2190\u2192", "panels"),
             ("\u2191\u2193", "navigate"),
             ("\u21b5", "inspect"),
             ("/", "search"),
@@ -579,6 +633,13 @@ class SonarApp(App):
         else:
             badge.remove_class("active")
 
+        # Restore selection highlight after rebuild.
+        if self._selected_trace_index is not None and lv.display:
+            if self._selected_trace_index < len(lv.children):
+                lv.index = self._selected_trace_index
+            else:
+                self._selected_trace_index = None
+
     # ── Span Tree Rendering (Section 5) ──────────────────
 
     @on(ListView.Selected, "#trace-list")
@@ -586,6 +647,7 @@ class SonarApp(App):
         """When a trace is selected, render its span tree."""
         item = event.item
         if isinstance(item, TraceListItem):
+            self._selected_trace_index = event.list_view.index
             self._render_span_tree(item.trace_spans)
 
     def _render_span_tree(self, spans: list[Span]) -> None:
@@ -698,7 +760,23 @@ class SonarApp(App):
 
     def action_unfocus_search(self) -> None:
         """Move focus back to the trace list (triggered by Escape)."""
-        self.query_one("#trace-list", ListView).focus()
+        lv = self.query_one("#trace-list", ListView)
+        lv.focus()
+        if self._selected_trace_index is not None:
+            lv.index = self._selected_trace_index
+
+    def action_focus_traces(self) -> None:
+        """Move focus to the trace list (triggered by left arrow)."""
+        lv = self.query_one("#trace-list", ListView)
+        lv.focus()
+        if self._selected_trace_index is not None:
+            lv.index = self._selected_trace_index
+
+    def action_focus_span_tree(self) -> None:
+        """Move focus to the span tree (triggered by right arrow)."""
+        tree = self.query_one("#span-tree", Tree)
+        if tree.display:
+            tree.focus()
 
     def action_toggle_errors(self) -> None:
         """Toggle error-only filter on the trace list."""
