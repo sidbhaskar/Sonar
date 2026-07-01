@@ -8,13 +8,7 @@ Sonar is a lightweight, terminal-based User Interface (TUI) designed to visualiz
 
 ## 📸 Screenshots
 
-*(For now, these are placeholders. Take screenshots of the TUI running and save them in a `docs/` folder as `screenshot-main.png` and `screenshot-details.png` to display them here!)*
-
-![Sonar TUI Main View](docs/screenshot-main.png)
-> **Main View:** Live ASCII Dependency Tree of incoming traces.
-
-![Sonar Span Details](docs/screenshot-details.png)
-> **Span Details:** Instant Payload Inspection showing raw metadata, gRPC statuses, and database queries.
+<img width="1332" height="727" alt="image" src="https://github.com/user-attachments/assets/5fea8e3d-eb74-4b33-9259-53b4a2f6a82c" />
 
 ---
 
