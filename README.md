@@ -45,13 +45,83 @@ Sonar bridges the gap by running directly in your terminal. It instantly process
 
 ## 🚀 Getting Started
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. **Run Sonar:**
-   ```bash
-   python -m sonar.main
-   ```
-3. **Send Traces:**
-   Configure your microservices to send OpenTelemetry data to `localhost:4318`. Or, use the included test scripts to generate mock traces!
+### 1. Install Sonar
+Since Sonar is packaged with standard Python tools, you can install it globally or in a virtual environment directly via pip:
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/sonar.git
+cd sonar
+
+# Install the package and its dependencies
+pip install .
+```
+
+### 2. Start Sonar
+Once installed, a global `sonar` command is added to your terminal. Simply run:
+
+```bash
+sonar
+```
+Sonar will instantly start up its TUI and spin up background listeners on `localhost:4317` (gRPC) and `localhost:4318` (HTTP).
+
+### 3. Connect Your Microservices (Any Framework)
+
+Because Sonar is a compliant OpenTelemetry (OTel) receiver, **you don't need to install any Sonar-specific libraries in your codebase**. You just use the official OpenTelemetry SDKs for your language.
+
+By default, standard OpenTelemetry SDKs attempt to send data to `localhost:4317` (gRPC) or `localhost:4318` (HTTP), which means in many cases, **it just works out of the box** once Sonar is running!
+
+Here's how to explicitly configure common frameworks to point to Sonar:
+
+#### 🟢 Node.js / Express
+Use the `@opentelemetry/sdk-node` package and set the exporter endpoint:
+```javascript
+const { NodeSDK } = require('@opentelemetry/sdk-node');
+const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
+
+const sdk = new NodeSDK({
+  serviceName: 'my-node-service',
+  traceExporter: new OTLPTraceExporter({
+    url: 'http://localhost:4318/v1/traces', // Sonar's HTTP endpoint
+  }),
+});
+sdk.start();
+```
+
+#### 🐍 Python (FastAPI / Flask / Django)
+Install `opentelemetry-exporter-otlp` and configure the tracer:
+```python
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+provider = TracerProvider()
+# Exports to localhost:4317 by default (Sonar's gRPC endpoint)
+processor = BatchSpanProcessor(OTLPSpanExporter()) 
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+```
+
+#### ☕ Java (Spring Boot)
+The easiest way is to use the **OpenTelemetry Java Agent** (no code changes required!). Just run your `.jar` with the agent attached:
+```bash
+java -javaagent:path/to/opentelemetry-javaagent.jar \
+     -Dotel.service.name=my-spring-boot-service \
+     -Dotel.exporter.otlp.endpoint=http://localhost:4318 \
+     -jar myapp.jar
+```
+
+#### 🐹 Go
+Use the `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` package:
+```go
+import "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+
+exporter, err := otlptracegrpc.New(ctx, 
+    otlptracegrpc.WithInsecure(),
+    otlptracegrpc.WithEndpoint("localhost:4317"), // Sonar's gRPC endpoint
+)
+```
+
+### 4. Watch the Magic Happen ✨
+As soon as your services handle a request, they will beam the telemetry data to Sonar. The TUI will instantly populate with a live dependency tree of your request's journey!

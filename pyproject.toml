@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sonar"
 version = "0.1.0"
 description = "Terminal-native distributed trace visualizer — a local OpenTelemetry collector with a TUI."
-readme = "project_desc.md"
+readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
